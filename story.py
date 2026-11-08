@@ -86,7 +86,7 @@ CATEGORIES = ["शिवाजी महाराज का बचपन और 
               "महाराज के जीवन से सीख"]
 
 SAFETY_RULES = """SAFETY RULES (very important, the page must never create controversy):
- - Use ONLY well-documented, widely accepted history (mainstream Indian historians, Shiv Charitra, Sabhasad Bakhar, contemporary records).
+ - Use ONLY well-documented, (mainstream Indian historians, Shiv Charitra, Sabhasad Bakhar, contemporary records).
    If a date or detail is disputed or only folklore, either skip it or say "इतिहासकारों के अनुसार" / "कहा जाता है" / "लगभग".
    NEVER invent dialogue, numbers, dates, names or quotes. When unsure, leave the detail out.
  - Talk about conflicts only as political and military events between states (स्वराज्य, आदिलशाही, मुगल सल्तनत, पुर्तगाली, सिद्दी, अंग्रेज़).
@@ -94,9 +94,6 @@ SAFETY_RULES = """SAFETY RULES (very important, the page must never create contr
    Do NOT use the words हिंदू, मुस्लिम, मुसलमान, इस्लाम, धर्म, जाति, ब्राह्मण, दलित, आरक्षण, जिहाद, काफ़िर, गद्दार, धर्मांतरण, कब्र.
    No politics, no political parties, no modern leaders, no comparison with today's events, no statements that insult any person or group.
  - Be respectful: always "छत्रपति शिवाजी महाराज" / "संभाजी महाराज" / "महाराज". Praise through facts (planning, courage, justice, care for people), not through attacking others.
- - Avoid contested topics: caste status debates, guru/teacher disputes, tomb or temple disputes, the exact cause of Shivaji Maharaj's death,
-   and graphic violence. Where history is painful (for example the last days of Sambhaji Maharaj) tell it with dignity: courage and sacrifice, no graphic detail, no blame on any community.
- - Do not show or describe any painting or face of the Maharajas. Visuals are only maps, forts, flags, timelines, scrolls and names.
 """
 
 PROMPT = """You write the script of a 45-75 second Instagram Reel in HINDI (Devanagari) about Chhatrapati Shivaji Maharaj / Chhatrapati Sambhaji Maharaj
