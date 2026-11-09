@@ -25,6 +25,10 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFilter, ImageFont, features
 
+import paper
+
+THEME = (os.getenv("THEME") or "paper").lower()
+
 try:
     from dotenv import load_dotenv
     load_dotenv()
@@ -86,14 +90,16 @@ CATEGORIES = ["शिवाजी महाराज का बचपन और 
               "महाराज के जीवन से सीख"]
 
 SAFETY_RULES = """SAFETY RULES (very important, the page must never create controversy):
- - Use ONLY well-documented, (mainstream Indian historians, Shiv Charitra, Sabhasad Bakhar, contemporary records).
-   If a date or detail is disputed or only folklore, either skip it or say "इतिहासकारों के अनुसार" / "कहा जाता है" / "लगभग".
+ - If a date or detail is disputed or only folklore, either skip it or say "इतिहासकारों के अनुसार" / "कहा जाता है" / "लगभग".
    NEVER invent dialogue, numbers, dates, names or quotes. When unsure, leave the detail out.
  - Talk about conflicts only as political and military events between states (स्वराज्य, आदिलशाही, मुगल सल्तनत, पुर्तगाली, सिद्दी, अंग्रेज़).
    NEVER frame anything as a religion against religion, caste against caste, or community against community.
    Do NOT use the words हिंदू, मुस्लिम, मुसलमान, इस्लाम, धर्म, जाति, ब्राह्मण, दलित, आरक्षण, जिहाद, काफ़िर, गद्दार, धर्मांतरण, कब्र.
    No politics, no political parties, no modern leaders, no comparison with today's events, no statements that insult any person or group.
  - Be respectful: always "छत्रपति शिवाजी महाराज" / "संभाजी महाराज" / "महाराज". Praise through facts (planning, courage, justice, care for people), not through attacking others.
+ - Avoid contested topics: caste status debates, guru/teacher disputes, tomb or temple disputes, the exact cause of Shivaji Maharaj's death,
+   and graphic violence. Where history is painful (for example the last days of Sambhaji Maharaj) tell it with dignity: courage and sacrifice, no graphic detail, no blame on any community.
+ - maintion the source of the content (e.g. if content from book,website,article) 
 """
 
 PROMPT = """You write the script of a 45-75 second Instagram Reel in HINDI (Devanagari) about Chhatrapati Shivaji Maharaj / Chhatrapati Sambhaji Maharaj
@@ -126,8 +132,17 @@ VISUAL TYPES (fill exactly these fields, all text in Devanagari):
 
 Return ONLY JSON:
 {{"title":"<Hindi title, max 28 characters>","tag":"<1-2 Hindi words, e.g. किला>","caption":"<Hindi caption, 2-3 sentences, no hashtags>",
- "comment_q":"<one respectful Hindi question for the audience>","hashtags":["#छत्रपतिशिवाजीमहाराज","#..."],
- "scenes":[{{"say":"...","sub":"...","head":"...","sfx":"none","visual":{{...}}}}]}}
+ "comment_q":"<one respectful Hindi question for the audience>","hashtags":["#<specific tag>", "..."],
+ "scenes":[{{"say":"...","sub":"...","head":"...","sfx":"none","scene":"fort","cast":"none","visual":{{...}}}}]}}
+
+"scene" = the paper-diorama backdrop, one of: "fort" (forts, rule, court), "ridge" (mountains, marches, battles), "sea" (navy, coast, ships), "forest" (guerrilla, hills, escape), "night" (secret plans, danger), "dawn" (birth, peace, people, lessons).
+"cast" = a paper character walking across the diorama: "rider" (Chhatrapati riding a horse with a bhagwa flag: journeys, escapes, marches, a ride to a fort), "mavle" (a column of Mavle soldiers marching with bhagwa flags and spears: battles, fort defence, gathering of the army, swearing the oath), "none" (calm, people, lessons, outro). Use "rider" in 2-3 scenes and "mavle" in 2-3 scenes, matching what the narration says. Characters are only silhouettes, never name them in "cast".
+Also add "march" to the sfx list: footsteps of marching soldiers (use with cast "mavle").
+
+HASHTAGS: give 6 LOW-COMPETITION hashtags (the kind with thousands to a few lakh posts, not crores): 3-4 very specific to THIS story
+(the fort, person, battle or place name written as one word, in Hindi or Marathi or English, e.g. #प्रतापगड #पावनखिंड #बाजीप्रभुदेशपांडे #sinhgadfort #tanajimalusare)
+and 2-3 medium niche tags (e.g. #मराठाइतिहास #शिवइतिहास #सह्याद्रीकेकिले #marathaempire). NEVER use giant generic tags like #reels #viral #trending #history #india #love.
+No religion, caste or political tags.
 
 Recent captions (do not repeat their stories): {recent}
 """
@@ -138,10 +153,10 @@ SAMPLE = {
     "comment_q": "आप रायगड कब गए थे?", "hashtags": ["#रायगड"],
     "scenes": [
         {"say": "सन सोलह सौ चौहत्तर। रायगड किले पर बड़ा दिन।", "sub": "सन 1674। रायगड किले पर बड़ा दिन।", "head": "**सन 1674** का वह दिन", "visual": {"type": "title", "kicker": "सन 1674", "big": "रायगड पर राज्याभिषेक", "place": "रायगड किला"}},
-        {"say": "सह्याद्रि की ऊँचाई पर खड़ा रायगड, स्वराज्य की राजधानी बना।", "sub": "सह्याद्रि पर खड़ा रायगड, स्वराज्य की राजधानी।", "head": "स्वराज्य की **राजधानी**", "sfx": "birds", "visual": {"type": "fort", "name": "रायगड", "year": "1656", "note": "स्वराज्य की राजधानी"}},
-        {"say": "पुणे से राजगड, और फिर रायगड, यह स्वराज्य का सफ़र था।", "sub": "पुणे से राजगड, फिर रायगड, स्वराज्य का सफ़र।", "head": "स्वराज्य का **सफ़र**", "sfx": "horse", "visual": {"type": "map", "places": ["पुणे", "राजगड", "रायगड"]}},
+        {"say": "सह्याद्रि की ऊँचाई पर खड़ा रायगड, स्वराज्य की राजधानी बना।", "sub": "सह्याद्रि पर खड़ा रायगड, स्वराज्य की राजधानी।", "head": "स्वराज्य की **राजधानी**", "sfx": "birds", "cast": "mavle", "scene": "fort", "visual": {"type": "fort", "name": "रायगड", "year": "1656", "note": "स्वराज्य की राजधानी"}},
+        {"say": "पुणे से राजगड, और फिर रायगड, यह स्वराज्य का सफ़र था।", "sub": "पुणे से राजगड, फिर रायगड, स्वराज्य का सफ़र।", "head": "स्वराज्य का **सफ़र**", "sfx": "horse", "cast": "rider", "scene": "ridge", "visual": {"type": "map", "places": ["पुणे", "राजगड", "रायगड"]}},
         {"say": "सोलह सौ छप्पन में रायगड स्वराज्य में आया।", "sub": "1656 में रायगड स्वराज्य में आया।", "head": "सालों का **सफ़र**", "sfx": "whisper", "visual": {"type": "timeline", "items": [{"y": "1656", "t": "रायगड स्वराज्य में शामिल"}, {"y": "1674", "t": "राज्याभिषेक"}, {"y": "1680", "t": "महाराज का निधन"}]}},
-        {"say": "इसी वर्ष महाराज छत्रपति कहलाए।", "sub": "इसी वर्ष महाराज छत्रपति कहलाए।", "head": "**छत्रपति** की उपाधि", "sfx": "sword", "visual": {"type": "stat", "big": "1674", "label": "छत्रपति की उपाधि"}},
+        {"say": "इसी वर्ष महाराज छत्रपति कहलाए।", "sub": "इसी वर्ष महाराज छत्रपति कहलाए।", "head": "**छत्रपति** की उपाधि", "sfx": "sword", "cast": "mavle", "scene": "ridge", "visual": {"type": "stat", "big": "1674", "label": "छत्रपति की उपाधि"}},
         {"say": "माता जिजाऊ ने बचपन से यह स्वराज्य का सपना सींचा था।", "sub": "माता जिजाऊ ने बचपन से स्वराज्य का सपना सींचा।", "head": "माता **जिजाऊ**", "sfx": "landslide", "visual": {"type": "people", "items": [{"n": "जिजाऊ माँसाहेब", "r": "माता और प्रेरणा"}]}},
         {"say": "अष्टप्रधान मंडल बना, अपना सिक्का चला।", "sub": "अष्टप्रधान मंडल बना, अपना सिक्का चला।", "head": "नया **शासन**", "visual": {"type": "points", "items": ["अष्टप्रधान मंडल", "शिवराई सिक्का", "राज्यव्यवहार कोश"]}},
         {"say": "अच्छा शासन, न्याय और प्रजा का हित, यही स्वराज्य की सीख है।", "sub": "अच्छा शासन, न्याय, प्रजा का हित: स्वराज्य की सीख।", "head": "आज की **सीख**", "visual": {"type": "scroll", "lines": ["सुशासन", "न्याय", "प्रजा का हित"]}},
@@ -797,8 +812,16 @@ def validate(spec, max_words=190, strict=True):
         sc["sub"] = re.sub(r"\*\*", "", str(sc.get("sub") or sc["say"])).strip()
         sc["head"] = str(sc.get("head") or "")
         sc["sfx"] = str(sc.get("sfx") or "none").lower().strip()
-        if sc["sfx"] not in ("horse", "birds", "landslide", "whisper", "sword"):
+        if sc["sfx"] not in ("horse", "march", "birds", "landslide", "whisper", "sword"):
             sc["sfx"] = "none"
+        sc["cast"] = str(sc.get("cast") or "").lower().strip()
+        if sc["cast"] not in ("rider", "mavle", "none"):
+            sc["cast"] = ""
+        if sc["sfx"] == "none":                            # characters bring their own sound
+            sc["sfx"] = {"rider": "horse", "mavle": "march"}.get(sc["cast"], "none")
+        sc["scene"] = str(sc.get("scene") or "").lower().strip()
+        if sc["scene"] not in ("fort", "ridge", "sea", "forest", "night", "dawn"):
+            sc["scene"] = ""
         out.append(sc)
     if len(out) < (10 if strict else 8):
         raise ValueError(f"only {len(out)} usable scenes; use 11-14 scenes with the listed visual types")
@@ -1124,6 +1147,8 @@ def mix_sound(spec, durs, voice_wav, tmp):
 # ------------------------------------------------------------------ render
 def render(spec, durs, audio, out_path, preview_dir=None):
     total = sum(durs)
+    spec["_durs"] = durs
+    draw = paper.draw_frame if THEME == "paper" else draw_frame
     cmd = ["ffmpeg", "-v", "error", "-y", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{W}x{H}", "-r", str(FPS), "-i", "-",
            "-i", str(audio), "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p", "-profile:v", "high",
            "-c:a", "aac", "-b:a", "160k", "-shortest", "-movflags", "+faststart", str(out_path)]
@@ -1138,7 +1163,7 @@ def render(spec, durs, audio, out_path, preview_dir=None):
         nf = int(round(durs[i] * FPS))
         for f in range(nf):
             t = f / FPS
-            im = draw_frame(spec, i, t + (0.45 if i == 0 else 0.0), gt + t, total, persist)   # scene 1 never starts blank
+            im = draw(spec, i, t + (0.45 if i == 0 else 0.0), gt + t, total, persist)   # scene 1 never starts blank
             p.stdin.write(im.tobytes())
             nframes += 1
             if preview_dir and f in (int(1.6 * FPS), nf - 2):
@@ -1166,9 +1191,13 @@ def build_caption(spec):
     parts.append(f"रोज़ एक नई कहानी के लिए फ़ॉलो करें @{HANDLE}")
     parts.append("ऐतिहासिक स्रोतों पर आधारित जानकारी।")
     tags = spec.get("hashtags") or []
-    base = ["#छत्रपतिशिवाजीमहाराज", "#छत्रपतिसंभाजीमहाराज", "#जयशिवराय", "#मराठा", "#इतिहास", "#shivajimaharaj",
-            "#sambhajimaharaj", "#maratha", "#maharashtra", "#history", "#reels"]
-    parts.append(" ".join(list(dict.fromkeys(tags + base))[:14]))
+    # story-specific, low-competition tags first; only a few fixed niche tags (no giant tags like #reels or #history)
+    big = {"#reels", "#viral", "#trending", "#history", "#india", "#love", "#explore", "#fyp", "#reel", "#instagood"}
+    tags = [x for x in tags if x.lower() not in big]
+    base = ["#छत्रपतिशिवाजीमहाराज", "#जयशिवराय", "#मराठाइतिहास", "#shivajimaharaj"]
+    if "संभाजी" in (str(spec.get("title", "")) + str(spec.get("caption", ""))):
+        base.insert(1, "#छत्रपतिसंभाजीमहाराज")
+    parts.append(" ".join(list(dict.fromkeys(tags[:6] + base))[:9]))
     text = "\n\n".join(p for p in parts if p)[:2200]
     m = RISKY.search(text)
     if m:                                                   # last safety net: strip the offending line from the caption
@@ -1186,6 +1215,7 @@ def main():
     global ACC
     ACC = random.choice(ACCENTS)
     _BGIMG.clear()
+    paper.CFG.update(brand=BRAND, handle=HANDLE)
     print(VERSION, file=sys.stderr)
     OUT_DIR.mkdir(exist_ok=True)
     stamp = time.strftime("%Y%m%d_%H%M")
