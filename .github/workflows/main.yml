@@ -84,6 +84,11 @@ jobs:
           INPUT_TOPIC: ${{ inputs.topic }}
           INPUT_DRY: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
         run: |
+
+      - name: Make and post the Reel
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: |
           ARGS=""
           if [ "$INPUT_DRY" = "true" ]; then ARGS="--dry-run"; fi
           for attempt in 1 2 3; do
