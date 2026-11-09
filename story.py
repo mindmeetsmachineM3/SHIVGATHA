@@ -909,7 +909,7 @@ TTS = (os.getenv("EXPLAIN_TTS") or "gemini").lower()                 # gemini | 
 GTTS_VOICE = os.getenv("GEMINI_TTS_VOICE") or "Algenib"               # Charon, Kore, Orus, Puck, Fenrir, Aoede, Leda, Zephyr ...
 GTTS_MODELS = [m for m in dict.fromkeys([os.getenv("GEMINI_TTS_MODEL") or "", "gemini-3.8-flash-tts", "gemini-3.8-flash-lite-tts"]) if m]
 GTTS_LEGACY = ["gemini-2.5-flash-preview-tts"]
-GTTS_STYLE = os.getenv("GEMINI_TTS_STYLE") or "a deep, heavy, resonant Indian male narrator speaking Hindi, slow, calm and powerful with great gravitas, like a documentary on Maratha history, with dramatic pauses between sentences"
+GTTS_STYLE = os.getenv("GEMINI_TTS_STYLE") or "a deep, heavy, resonant Indian male narrator speaking Hindi, slow, calm and powerful with great gravitas, like a documentary on Maratha history"
 API = "https://generativelanguage.googleapis.com/v1beta"
 
 
@@ -1018,7 +1018,7 @@ def _silences(path, noise, dur):
 def _find_cuts(path, spec, total):
     """Times (seconds) where one scene ends and the next begins in the one-piece narration."""
     n = len(spec["scenes"])
-    w = [len(sc["say"].split()) + 3 for sc in spec["scenes"]]
+    w = [len(sc["say"].split()) + 2: for sc in spec["scenes"]]
     cum, acc = [], 0
     for x in w[:-1]:
         acc += x
