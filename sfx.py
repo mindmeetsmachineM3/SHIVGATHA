@@ -220,9 +220,30 @@ def sword(dur, seed=6):
     return _fade(_norm(_reverb(out, 0.6, 0.25, 11), 0.9), 0.05, 0.6)
 
 
-SFX = {"horse": horse, "birds": birds, "landslide": landslide, "whisper": whisper, "sword": sword}
+def march(dur, seed=7):
+    """many men walking: soft rhythmic footfalls (left-right) with a little cloth/gear rustle"""
+    r = _rng(seed)
+    out = np.zeros(int(dur * SR))
+    step = 0.45
+    at = 0.1
+    i = 0
+    while at < dur:
+        for k in range(3):                                # a few men slightly out of step
+            tt = at + r.uniform(-0.035, 0.035)
+            n = int(0.14 * SR)
+            tm = np.arange(n) / SR
+            thud = np.sin(2 * np.pi * (95 + 18 * (i % 2)) * tm) * np.exp(-tm * 30)
+            scuff = _fft_filter(r.standard_normal(n), 300, 2200) * _env(n, 0.002, 0.05)
+            _add(out, (thud * 0.9 + scuff * 0.7) * r.uniform(0.5, 0.9), tt)
+        i += 1
+        at += step
+    rustle = _fft_filter(r.standard_normal(len(out)), 2500, 7000) * 0.015
+    return _fade(_norm(_reverb(out + rustle, 0.45, 0.25, 11), 0.85), 0.3, 0.5)
+
+
+SFX = {"march": march, "horse": horse, "birds": birds, "landslide": landslide, "whisper": whisper, "sword": sword}
 # level of every scene sound relative to the BGM bed (they all sit under the narration anyway)
-LEVEL = {"horse": 0.9, "birds": 0.7, "landslide": 1.0, "whisper": 0.55, "sword": 0.9}
+LEVEL = {"march": 0.85, "horse": 0.9, "birds": 0.7, "landslide": 1.0, "whisper": 0.55, "sword": 0.9}
 
 
 def _load(path, dur):
@@ -282,7 +303,7 @@ if __name__ == "__main__":
     from pathlib import Path
     out = Path(sys.argv[1] if len(sys.argv) > 1 else ".")
     out.mkdir(exist_ok=True)
-    kinds = ["horse", "birds", "landslide", "whisper", "sword", "none"]
+    kinds = ["horse", "march", "birds", "landslide", "whisper", "sword", "none"]
     mix_bed([6.0] * len(kinds), kinds, out / "bed_demo.wav")
     for k, fn in SFX.items():
         x = fn(5.0, 1)
