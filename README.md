@@ -24,3 +24,6 @@ python story.py --sample        # renders the look with a fake voice, saves outp
 python story.py --dry-run       # real script + real voice, nothing posted (needs GEMINI_API_KEY)
 ```
 See `SETUP_STEPS.md` for the full new-account setup.
+
+## Look (THEME)
+THEME=paper (default) = paper-craft diorama look, drawn in code, no cost. THEME=parchment = the old parchment look.
