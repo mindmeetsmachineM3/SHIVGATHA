@@ -4,6 +4,7 @@ unfolds like a pop-up book and drifts with parallax, on a blurred copy of itself
 subtitles as terracotta paper word-chips. Everything is drawn in code (no images, no AI image/video tools, no cost).
 """
 import math
+import json
 import random
 import re
 import zlib
@@ -13,7 +14,7 @@ from pathlib import Path
 from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont
 
 W, H = 720, 1280
-CW, CH = 640, 400            # diorama card
+CW, CH = 720, 520            # world layer size (full screen width)
 LW = CW + 140                # world width of a layer (room for parallax)
 CX = W // 2
 BASE = Path(__file__).parent
@@ -165,21 +166,19 @@ PALETTES = {
     "forest": dict(sky=[(150, 178, 156), (200, 214, 176), (240, 232, 190)], far=(110, 146, 120), mid=(70, 112, 76), fort=(206, 178, 132), fg=(44, 88, 56), sun=False),
     "sea": dict(sky=[(128, 172, 208), (206, 214, 206), (252, 226, 184)], far=(122, 152, 150), mid=(92, 134, 96), fort=(222, 190, 140), fg=(60, 120, 150), sun=True),
 }
-KIND_PALETTE = {"fort": "sunset", "ridge": "sunset", "sea": "sea", "forest": "forest", "night": "night", "dawn": "dawn"}
-KINDS = tuple(KIND_PALETTE)
 
 
 def sky_img(stops):
-    im = Image.new("RGB", (CW, CH))
+    im = Image.new("RGB", (CW, 896))
     px = ImageDraw.Draw(im)
-    for y in range(CH):
-        f = y / (CH * 0.78)
+    for y in range(896):
+        f = y / (896 * 0.78)
         f = min(1.0, f)
         a, b = (0, 1) if f < 0.5 else (1, 2)
         ff = f * 2 if f < 0.5 else (f - 0.5) * 2
         c = tuple(int(stops[a][i] + (stops[b][i] - stops[a][i]) * ff) for i in range(3))
         px.line((0, y, CW, y), fill=c)
-    return ImageChops.add(im, grain(CW, CH, 0.22), 1, -128)
+    return ImageChops.add(im, grain(CW, 896, 0.22), 1, -128)
 
 
 # ------------------------------------------------------------------ paper parts
@@ -380,91 +379,338 @@ def mist(w=LW, h=CH, y=250):
 
 
 # ------------------------------------------------------------------ the diorama (built once per scene, drawn every frame)
-class Art:
-    def __init__(self, kind, seed):
-        self.kind = kind if kind in KINDS else "fort"
-        rng = random.Random(seed)
-        pal = PALETTES[KIND_PALETTE[self.kind]]
-        self.pal = pal
-        self.sky = sky_img(pal["sky"])
-        self.layers = []                              # (sprite, depth, y_offset, wave_speed)
-        self.flag = None
-        self.stars = [(rng.uniform(8, CW - 8), rng.uniform(8, CH * 0.5), rng.uniform(0, 6)) for _ in range(34)] if self.kind == "night" else []
-        self.sun = sun_sprite() if pal["sun"] else (moon_sprite() if self.kind == "night" else None)
-        self.sun_xy = (rng.uniform(CW * 0.22, CW * 0.7), CH * 0.34) if self.sun else None
-        self.clouds = [(cloud_sprite(rng), rng.uniform(0, CW + 200), rng.uniform(26, 120), rng.uniform(5, 11), rng.uniform(0, 6)) for _ in range(3 if self.kind != "night" else 1)]
-        self.ships = []
-        far = mountains(rng, pal["far"], CH * 0.66, 150, 5)
-        self.layers.append((far, 0.12, 0, 0.0))
-        if self.kind == "sea":
-            self.layers.append((waves(rng, (96, 150, 186), CH * 0.70), 0.25, 0, 7.0))
-            fl, fx = fort_layer(rng, pal["fort"], CH * 0.74, scale=0.75, cx=LW * 0.3)
-            self.layers.append((fl, 0.4, 0, 0.0))
-            self.flag = (fx[0], fx[1], 0.4)
-            self.ships = [(ship_sprite(rng, 1.0), LW * 0.62, CH * 0.64, 0.6), (ship_sprite(rng, 0.7), LW * 0.42, CH * 0.62, 0.45)]
-            self.layers.append((waves(rng, (70, 128, 168), CH * 0.80, 9), 0.8, 0, -9.0))
-            self.layers.append((waves(rng, (52, 108, 150), CH * 0.90, 10), 1.0, 0, 12.0))
-        elif self.kind == "forest":
-            self.layers.append((hills(rng, pal["mid"], CH * 0.74, 70), 0.3, 0, 0.0))
-            self.layers.append((trees(rng, (62, 108, 70), 9, CH * 0.78, 100, "any"), 0.55, 0, 0.0))
-            self.layers.append((mist(), 0.7, 0, 0.0))
-            self.layers.append((trees(rng, pal["fg"], 6, CH * 0.92, 140), 1.0, 0, 0.0))
-        else:
-            self.layers.append((hills(rng, pal["mid"], CH * 0.74, 70), 0.3, 0, 0.0))
-            sc = 1.0 if self.kind != "ridge" else 0.7
-            fl, fx = fort_layer(rng, pal["fort"], CH * 0.78, scale=sc, cx=LW * (0.62 if self.kind != "ridge" else 0.48))
-            self.layers.append((fl, 0.5, 0, 0.0))
-            self.flag = (fx[0], fx[1], 0.5)
-            self.layers.append((trees(rng, pal["fg"], 6, CH * 0.93, 130), 1.0, 0, 0.0))
-        if self.kind == "night":
-            self.flame = [(LW * 0.62 + o, CH * 0.78 - 52 + 6) for o in (-150, -50, 50, 150)]
-        else:
-            self.flame = []
+# ---- extra scene parts -------------------------------------------------------------------------------------------
+def banyan(rng, color, base, x, s=1.0, w=LW, h=CH):
+    d = Dual(w, h)
+    d.poly([(x - 14 * s, base + 40), (x - 8 * s, base - 70 * s), (x + 8 * s, base - 70 * s), (x + 16 * s, base + 40)], (98, 66, 42))
+    for ox, oy, r in ((-60, -100, 54), (0, -140, 70), (62, -104, 54), (-26, -92, 46), (30, -90, 46)):
+        d.ell((x + (ox - r) * s, base + (oy - r) * s, x + (ox + r) * s, base + (oy + r) * s), color)
+    for _ in range(14):
+        fx, fy = x + rng.uniform(-90, 90) * s, base + rng.uniform(-190, -70) * s
+        d.ell((fx - 9, fy - 9, fx + 9, fy + 9), lighten(color, 1.12, 6))
+    return d.done(shadow=10, blur=7, shade=105)
 
+
+def path_layer(rng, color, base, w=LW, h=CH):
+    d = Dual(w, h)
+    x0 = rng.uniform(w * 0.25, w * 0.7)
+    pts_l, pts_r = [], []
+    for k in range(0, 9):
+        f = k / 8
+        y = base + (h - base) * f
+        cx = x0 + math.sin(f * 4 + rng.uniform(0, 1)) * 70 * (1 - f) + (w * 0.5 - x0) * f * 0.5
+        wd = 10 + 90 * f * f
+        pts_l.append((cx - wd, y))
+        pts_r.append((cx + wd, y))
+    d.poly(pts_l + pts_r[::-1], color)
+    return d.done(shadow=4, blur=4, shade=60, grain_k=0.22)
+
+
+def thatch_hut(d, x, base, s, wall=(214, 176, 128)):
+    d.poly([(x - 34 * s, base), (x + 34 * s, base), (x + 34 * s, base - 34 * s), (x - 34 * s, base - 34 * s)], wall)
+    d.poly([(x - 46 * s, base - 30 * s), (x + 46 * s, base - 30 * s), (x, base - 78 * s)], (178, 134, 70))
+    d.poly([(x - 46 * s, base - 30 * s), (x, base - 78 * s), (x, base - 30 * s)], (196, 152, 84))
+    d.poly([(x - 8 * s, base), (x + 8 * s, base), (x + 8 * s, base - 24 * s), (x - 8 * s, base - 24 * s)], (84, 56, 40))
+
+
+def village_layers(rng, pal):
+    out = []
+    d = Dual(LW, CH)                                                  # field strips
+    for k in range(7):
+        f0, f1 = k / 7, (k + 1) / 7
+        y0, y1 = CH * (0.74 + 0.26 * f0), CH * (0.74 + 0.26 * f1)
+        c = (126, 160, 82) if k % 2 == 0 else (206, 178, 92)
+        d.poly([(0, y0), (LW, y0), (LW, y1 + 2), (0, y1 + 2)], c)
+    out.append((d.done(shadow=6, blur=5, shade=70), 0.35))
+    d = Dual(LW, CH)
+    xs = sorted(rng.uniform(120, LW - 120) for _ in range(3))
+    smoke = []
+    for x in xs:
+        thatch_hut(d, x, CH * 0.80, rng.uniform(0.9, 1.3))
+        smoke.append((x + 18, CH * 0.80 - 80))
+    wx = rng.uniform(80, LW - 80)
+    d.ell((wx - 22, CH * 0.80 - 20, wx + 22, CH * 0.80 + 6), (150, 140, 128))
+    d.poly([(wx - 28, CH * 0.80 - 44), (wx + 28, CH * 0.80 - 44), (wx, CH * 0.80 - 66)], (140, 96, 60))
+    out.append((d.done(shadow=8, blur=6, shade=100), 0.55))
+    return out, smoke
+
+
+def court_layers(rng):
+    out = []
+    w, h = LW, CH
+    d = Dual(w, h)                                                    # wall with three arched niches
+    d.poly([(0, 0), (w, 0), (w, h), (0, h)], (150, 58, 48))
+    for cx in (w * 0.2, w * 0.5, w * 0.8):
+        for (grow, col) in ((6, (236, 214, 170)), (0, (84, 28, 28))):
+            d.poly([(cx - 62 - grow, h * 0.78), (cx + 62 + grow, h * 0.78), (cx + 62 + grow, h * 0.42), (cx - 62 - grow, h * 0.42)], col)
+            d.ell((cx - 62 - grow, h * 0.42 - 62 - grow, cx + 62 + grow, h * 0.42 + 62 + grow), col)
+    out.append((d.done(shadow=5, blur=4, shade=60), 0.12, 0, None))
+    d = Dual(w, h)                                                    # carpet floor
+    d.poly([(0, h * 0.78), (w, h * 0.78), (w, h), (0, h)], (112, 36, 34))
+    d.poly([(w * 0.34, h * 0.78), (w * 0.66, h * 0.78), (w * 0.82, h), (w * 0.18, h)], (176, 52, 44))
+    d.line([(w * 0.34, h * 0.78), (w * 0.18, h)], (230, 180, 70), 6)
+    d.line([(w * 0.66, h * 0.78), (w * 0.82, h)], (230, 180, 70), 6)
+    out.append((d.done(shadow=5, blur=4, shade=70), 0.3, 0, None))
+    d = Dual(w, h)                                                    # throne under a chhatra
+    cx, by = w * 0.5, h * 0.80
+    gold = (226, 172, 62)
+    d.poly([(cx - 52, by), (cx + 52, by), (cx + 46, by - 40), (cx - 46, by - 40)], gold)
+    d.poly([(cx - 58, by - 40), (cx + 58, by - 40), (cx + 58, by - 54), (cx - 58, by - 54)], (170, 44, 40))
+    d.poly([(cx - 44, by - 54), (cx + 44, by - 54), (cx + 44, by - 150), (cx - 44, by - 150)], gold)
+    d.ell((cx - 44, by - 190, cx + 44, by - 110), gold)
+    d.poly([(cx - 34, by - 56), (cx + 34, by - 56), (cx + 34, by - 140), (cx - 34, by - 140)], (170, 44, 40))
+    d.line([(cx, by - 150), (cx, by - 240)], (120, 86, 40), 5)
+    d.poly([(cx - 70, by - 232), (cx + 70, by - 232), (cx + 40, by - 290), (cx - 40, by - 290)], SAFF)
+    for k in range(8):
+        x = cx - 70 + k * 20
+        d.ell((x, by - 242, x + 20, by - 222), (240, 190, 70))
+    out.append((d.done(shadow=9, blur=6, shade=110), 0.6, 0, None))
+    d = Dual(w, h)                                                    # pillars
+    for px in (70, w - 70):
+        d.poly([(px - 24, h), (px + 24, h), (px + 20, 20), (px - 20, 20)], (240, 226, 196))
+        d.poly([(px - 34, 22), (px + 34, 22), (px + 28, 0), (px - 28, 0)], (214, 170, 80))
+        d.poly([(px - 32, h), (px + 32, h), (px + 28, h - 26), (px - 28, h - 26)], (214, 170, 80))
+        d.poly([(px - 8, h), (px + 8, h), (px + 6, 20), (px - 6, 20)], (222, 206, 172))
+    out.append((d.done(shadow=10, blur=7, shade=110), 1.0, 0, None))
+    d = Dual(w, h)                                                    # scalloped valance
+    d.poly([(0, 0), (w, 0), (w, 34), (0, 34)], SAFF)
+    for k in range(0, w, 46):
+        d.ell((k, 8, k + 46, 66), SAFF)
+        d.ell((k + 14, 24, k + 32, 42), (240, 190, 70))
+    out.append((d.done(shadow=9, blur=6, shade=110), 1.0, 0, None))
+    lamps = [(w * 0.2 + 6, 70), (w * 0.5, 40), (w * 0.8 - 6, 70)]
+    return out, lamps
+
+
+def battle_layers(rng, pal):
+    out = []
+    out.append((mountains(rng, pal["far"], CH * 0.64, 190, 5), 0.12, 0, None))
+    out.append((hills(rng, pal["mid"], CH * 0.80, 56), 0.4, 0, None))
+    d = Dual(LW, CH)                                                   # spear + banner poles on both flanks
+    poles = []
+    for side in (0, 1):
+        for k in range(rng.randint(4, 6)):
+            x = rng.uniform(20, 200) if side == 0 else rng.uniform(LW - 200, LW - 20)
+            top = rng.uniform(CH * 0.30, CH * 0.58)
+            d.line([(x, CH), (x, top)], (46, 32, 28), 5)
+            if k % 2 == 0:
+                poles.append((x, top))
+            else:
+                d.poly([(x - 5, top + 2), (x + 5, top + 2), (x, top - 24)], (196, 200, 206))
+    out.append((d.done(shadow=8, blur=6, shade=100), 1.0, 0, "poles"))
+    return out, poles
+
+
+def temple_layer(rng, color, base, cx):
+    d = Dual(LW, CH)
+    stone = lighten(color, 1.0, 0)
+    for k, (wd, hh) in enumerate(((190, 18), (160, 18), (130, 18))):
+        y = base - k * 18
+        d.poly([(cx - wd, y), (cx + wd, y), (cx + wd - 10, y - hh), (cx - wd + 10, y - hh)], darken(stone, 0.92 - 0.04 * k))
+    y0 = base - 54
+    d.poly([(cx - 100, y0), (cx + 100, y0), (cx + 100, y0 - 56), (cx - 100, y0 - 56)], stone)
+    for ox in (-76, -26, 26, 76):
+        d.poly([(cx + ox - 10, y0), (cx + ox + 10, y0), (cx + ox + 10, y0 - 56), (cx + ox - 10, y0 - 56)], darken(stone, 0.84))
+    d.poly([(cx - 24, y0), (cx + 24, y0), (cx + 24, y0 - 40), (cx - 24, y0 - 40)], (84, 56, 40))
+    y1 = y0 - 56
+    for k in range(6):
+        wd = 78 - k * 10
+        d.poly([(cx - wd, y1 - k * 26), (cx + wd, y1 - k * 26), (cx + wd - 8, y1 - k * 26 - 30), (cx - wd + 8, y1 - k * 26 - 30)],
+               darken(stone, 0.9 - 0.02 * k) if k % 2 == 0 else lighten(stone, 1.04, 2))
+    ty = y1 - 6 * 26 - 4
+    d.poly([(cx - 20, ty), (cx + 20, ty), (cx, ty - 40)], darken(stone, 0.86))
+    d.ell((cx - 9, ty - 54, cx + 9, ty - 36), (230, 176, 70))
+    for dx in (-240, 240):                                            # lamp towers
+        x = cx + dx
+        d.line([(x, base), (x, base - 140)], (90, 74, 60), 8)
+        for k in range(7):
+            yy = base - 24 - k * 18
+            d.ell((x - 18, yy - 5, x + 18, yy + 5), (226, 176, 80))
+    return d.done(shadow=10, blur=7, shade=110), (cx, ty - 54)
+
+
+def crossed_swords(s=1.0):
+    w, h = int(230 * s), int(230 * s)
+    d = Dual(w, h)
+    c = w / 2
+    for sgn in (-1, 1):
+        a = sgn * 0.62
+        ca, sa = math.cos(a), math.sin(a)
+
+        def P(x, y):
+            return (c + x * ca - y * sa, c + x * sa + y * ca)
+        d.poly([P(-7, 96), P(7, 96), P(5, -92), P(0, -108), P(-5, -92)], (206, 212, 220))
+        d.poly([P(-1, 96), P(1, 96), P(1, -104), P(-1, -104)], (150, 158, 168))
+        d.poly([P(-30, 96), P(30, 96), P(30, 104), P(-30, 104)], (226, 172, 62))
+        d.poly([P(-6, 104), P(6, 104), P(6, 130), P(-6, 130)], (120, 70, 44))
+    return d.done(shadow=7, blur=6, shade=100)
+
+
+# ------------------------------------------------------------------ the diorama (built once per scene, drawn every frame)
+AH = 896                      # the animation takes 70 % of the 1280 px screen; the lower 30 % is for text
+OFF = AH - CH                 # layers (CH tall) sit at the bottom of the animation area
+
+PALETTES.update({
+    "noon": dict(sky=[(110, 166, 214), (176, 208, 230), (236, 240, 226)], far=(118, 150, 170), mid=(104, 150, 88), fort=(232, 206, 160), fg=(62, 122, 72), sun=True),
+    "dusk": dict(sky=[(70, 60, 120), (190, 100, 120), (250, 170, 110)], far=(96, 88, 128), mid=(76, 104, 92), fort=(214, 168, 130), fg=(44, 84, 72), sun=True),
+    "ember": dict(sky=[(60, 24, 28), (150, 52, 40), (238, 130, 60)], far=(70, 44, 52), mid=(56, 44, 44), fort=(150, 110, 90), fg=(34, 28, 30), sun=True),
+    "court": dict(sky=[(128, 44, 40), (160, 66, 50), (196, 104, 64)], far=(100, 50, 50), mid=(100, 50, 50), fort=(220, 190, 140), fg=(60, 30, 30), sun=False),
+})
+KIND_PALS = {"fort": ["sunset", "dawn", "noon", "dusk"], "ridge": ["sunset", "dusk", "noon", "dawn"], "sea": ["sea", "dawn", "dusk"],
+             "forest": ["forest", "dawn", "noon"], "night": ["night"], "dawn": ["dawn", "sunset", "noon"], "court": ["court"],
+             "village": ["noon", "dawn", "sunset"], "battle": ["ember", "dusk"], "temple": ["dawn", "sunset", "dusk", "noon"]}
+KINDS = tuple(KIND_PALS)
+
+
+class Art:
     cast = "none"
 
+    def __init__(self, kind, seed):
+        self.kind = kind if kind in KINDS else "fort"
+        k = self.kind
+        rng = random.Random(seed)
+        self.pname = rng.choice(KIND_PALS[k])
+        pal = PALETTES[self.pname]
+        self.pal = pal
+        self.sky = sky_img(pal["sky"])
+        self.layers = []                       # (sprite, depth, wave, tag)
+        self.flag = None                       # (x, y, layer index)
+        self.ships, self.flames, self.lamps, self.smoke, self.poles = [], [], [], [], []
+        self.emblem = None
+        night = self.pname == "night"
+        self.stars = [(rng.uniform(8, CW - 8), rng.uniform(8, AH * 0.6), rng.uniform(0, 6)) for _ in range(46)] if night else []
+        self.sun = None
+        if k != "court":
+            self.sun = sun_sprite(rng.choice((46, 60, 74))) if pal["sun"] else moon_sprite(rng.choice((34, 42)))
+        self.sun_xy = (rng.uniform(CW * 0.18, CW * 0.8), AH * rng.uniform(0.2, 0.44))
+        ncl = 0 if k == "court" else (1 if night else rng.randint(2, 4))
+        self.clouds = [(cloud_sprite(rng, rng.randint(150, 230), 80), rng.uniform(0, CW + 200), rng.uniform(50, AH * 0.5), rng.uniform(5, 13), rng.uniform(0, 6)) for _ in range(ncl)]
+        self.birds = [(rng.uniform(0, CW), rng.uniform(AH * 0.12, AH * 0.5), rng.uniform(14, 30), rng.uniform(0, 6)) for _ in range(rng.randint(3, 6))] if k in ("dawn", "sea", "forest", "temple", "village") else []
+        far_n, far_amp = rng.randint(4, 6), rng.uniform(130, 200)
+        if k in ("fort", "night"):
+            self.layers.append((mountains(rng, pal["far"], CH * 0.66, far_amp, far_n), 0.12, 0, None))
+            self.layers.append((hills(rng, pal["mid"], CH * 0.74, rng.uniform(50, 90)), 0.3, 0, None))
+            fl, fx = fort_layer(rng, pal["fort"], CH * 0.78, scale=rng.uniform(0.95, 1.3), cx=LW * rng.uniform(0.36, 0.66))
+            self.layers.append((fl, 0.5, 0, "fort"))
+            self.flag = (fx[0], fx[1], len(self.layers) - 1, 0.5)
+            if night:
+                self.flames = [(fx[0] + o, CH * 0.78 - 46) for o in (-150, -50, 50, 150)]
+            self.layers.append((trees(rng, pal["fg"], rng.randint(4, 7), CH * 0.93, rng.uniform(110, 150)), 1.0, 0, None))
+        elif k == "ridge":
+            self.layers.append((mountains(rng, pal["far"], CH * 0.62, rng.uniform(210, 260), 4), 0.1, 0, None))
+            self.layers.append((mountains(rng, lighten(pal["far"], 0.92, 0), CH * 0.72, rng.uniform(140, 190), 5), 0.25, 0, None))
+            fl, fx = fort_layer(rng, pal["fort"], CH * 0.74, scale=rng.uniform(0.5, 0.7), cx=LW * rng.uniform(0.25, 0.75))
+            self.layers.append((fl, 0.35, 0, "fort"))
+            self.flag = (fx[0], fx[1], len(self.layers) - 1, 0.35)
+            self.layers.append((path_layer(rng, (226, 200, 150), CH * 0.80), 0.7, 0, None))
+            self.layers.append((trees(rng, pal["fg"], rng.randint(3, 5), CH * 0.94, rng.uniform(120, 160)), 1.0, 0, None))
+        elif k == "sea":
+            self.layers.append((mountains(rng, pal["far"], CH * 0.66, 120, 4), 0.12, 0, None))
+            self.layers.append((waves(rng, (96, 150, 186), CH * 0.70), 0.25, 7.0, None))
+            fl, fx = fort_layer(rng, pal["fort"], CH * 0.74, scale=rng.uniform(0.6, 0.85), cx=LW * rng.choice((0.25, 0.72)))
+            self.layers.append((fl, 0.4, 0, "fort"))
+            self.flag = (fx[0], fx[1], len(self.layers) - 1, 0.4)
+            self.ships = [(ship_sprite(rng, rng.uniform(0.7, 1.15)), rng.uniform(LW * 0.2, LW * 0.8), CH * rng.uniform(0.62, 0.7), rng.uniform(0.45, 0.7)) for _ in range(rng.randint(1, 3))]
+            self.layers.append((waves(rng, (70, 128, 168), CH * 0.80, 9), 0.8, -9.0, None))
+            self.layers.append((waves(rng, (52, 108, 150), CH * 0.90, 10), 1.0, 12.0, None))
+        elif k == "forest":
+            self.layers.append((mountains(rng, pal["far"], CH * 0.66, far_amp, far_n), 0.1, 0, None))
+            self.layers.append((hills(rng, pal["mid"], CH * 0.74, 70), 0.3, 0, None))
+            self.layers.append((trees(rng, (62, 108, 70), rng.randint(7, 11), CH * 0.78, rng.uniform(90, 120), "any"), 0.55, 0, None))
+            self.layers.append((mist(), 0.7, 0, None))
+            self.layers.append((trees(rng, pal["fg"], rng.randint(5, 8), CH * 0.92, rng.uniform(130, 170)), 1.0, 0, None))
+        elif k == "dawn":
+            self.layers.append((mountains(rng, pal["far"], CH * 0.66, far_amp, far_n), 0.1, 0, None))
+            self.layers.append((hills(rng, lighten(pal["mid"], 0.9, 0), CH * 0.68, 60), 0.2, 0, None))
+            self.layers.append((hills(rng, pal["mid"], CH * 0.78, 70), 0.4, 0, None))
+            self.layers.append((banyan(rng, darken(pal["fg"], 1.0), CH * 0.80, LW * rng.uniform(0.25, 0.75), rng.uniform(0.9, 1.3)), 0.65, 0, None))
+            self.layers.append((hills(rng, pal["fg"], CH * 0.94, 40), 1.0, 0, None))
+        elif k == "village":
+            self.layers.append((mountains(rng, pal["far"], CH * 0.62, far_amp, far_n), 0.1, 0, None))
+            self.layers.append((hills(rng, pal["mid"], CH * 0.70, 60), 0.25, 0, None))
+            lay, sm = village_layers(rng, pal)
+            for spr, dep in lay:
+                self.layers.append((spr, dep, 0, None))
+            self.smoke = [(x, y, 0.55) for (x, y) in sm]
+            self.layers.append((trees(rng, pal["fg"], rng.randint(3, 5), CH * 0.95, rng.uniform(110, 150)), 1.0, 0, None))
+        elif k == "court":
+            lay, self.lamps = court_layers(rng)
+            self.layers = list(lay)
+        elif k == "battle":
+            lay, poles = battle_layers(rng, pal)
+            self.layers = list(lay)
+            self.poles = poles
+            self.emblem = crossed_swords(rng.uniform(1.0, 1.3))
+            self.clouds = [(darkcloud(rng), rng.uniform(0, CW + 200), rng.uniform(60, AH * 0.55), rng.uniform(8, 16), rng.uniform(0, 6)) for _ in range(5)]
+        elif k == "temple":
+            self.layers.append((mountains(rng, pal["far"], CH * 0.64, far_amp, far_n), 0.1, 0, None))
+            self.layers.append((hills(rng, pal["mid"], CH * 0.74, 60), 0.3, 0, None))
+            tl, tfx = temple_layer(rng, pal["fort"], CH * 0.82, LW * rng.uniform(0.42, 0.58))
+            self.layers.append((tl, 0.55, 0, "fort"))
+            self.flag = (tfx[0], tfx[1], len(self.layers) - 1, 0.55)
+            self.layers.append((trees(rng, pal["fg"], rng.randint(3, 5), CH * 0.95, rng.uniform(110, 150)), 1.0, 0, None))
+
     def render(self, t, persist=False):
-        cam = math.sin(t * 0.42 + 0.6)                       # -1..1 slow pan
+        cam = math.sin(t * 0.42 + 0.6)
         im = self.sky.copy()
         d = ImageDraw.Draw(im)
-        for (sx, sy, ph) in self.stars:                       # twinkling paper stars
+        for (sx, sy, ph) in self.stars:
             a = 0.55 + 0.45 * math.sin(t * 3 + ph)
-            r = 2.2 * a + 0.6
-            d.polygon([(sx, sy - r * 1.6), (sx + r * 0.5, sy), (sx, sy + r * 1.6), (sx - r * 0.5, sy)], fill=(255, 246, 214))
+            r = 2.4 * a + 0.7
+            d.polygon([(sx, sy - r * 1.7), (sx + r * 0.5, sy), (sx, sy + r * 1.7), (sx - r * 0.5, sy)], fill=(255, 246, 214))
         if self.sun:
-            sp = ease((t - 0.15) / 0.8) if not persist else 1.0
-            s = self.sun.rotate(t * 6, resample=Image.BICUBIC) if self.kind != "night" else self.sun
+            sp = 1.0 if persist else ease((t - 0.15) / 0.8)
+            s = self.sun.rotate(t * 6, resample=Image.BICUBIC) if self.pname != "night" else self.sun
             sx, sy = self.sun_xy
-            im.paste(s, (int(sx - s.width / 2 + cam * -6), int(sy - s.height / 2 + (1 - sp) * 70)), s)
+            im.paste(s, (int(sx - s.width / 2 - cam * 8), int(sy - s.height / 2 + (1 - sp) * 90)), s)
+        if self.emblem:
+            e = self.emblem
+            im.paste(e, (int(CW / 2 - e.width / 2), int(AH * 0.26 - e.height / 2 + 6 * math.sin(t * 1.4))), e)
         for (cs, cx0, cy0, sp_, ph) in self.clouds:
-            x = (cx0 - t * sp_) % (CW + 260) - 130
-            im.paste(cs, (int(x), int(cy0 + 4 * math.sin(t * 0.9 + ph))), cs)
-        order = 0
-        for li, (spr, depth, yo, wv) in enumerate(self.layers):
-            if li == len(self.layers) - 1 and self.cast != "none" and self.kind != "sea":
+            x = (cx0 - t * sp_) % (CW + 300) - 150
+            im.paste(cs, (int(x), int(cy0 + 5 * math.sin(t * 0.9 + ph))), cs)
+        for (bx, by, sp_, ph) in self.birds:
+            x = (bx + t * sp_) % (CW + 120) - 60
+            y = by + 10 * math.sin(t * 0.7 + ph)
+            fl = 6 * math.sin(t * 9 + ph)
+            d.line([(x - 11, y - fl), (x, y + 2), (x + 11, y - fl)], fill=(70, 50, 44), width=3)
+        for li, (spr, depth, wv, tag) in enumerate(self.layers):
+            if li == len(self.layers) - 1 and self.cast != "none" and self.kind not in ("sea", "court"):
                 draw_cast(im, self.cast, t, persist)
-            pop = 1.0 if persist else back((t - 0.1 - order * 0.11) / 0.55)
-            order += 1
+            pop = 1.0 if persist else back((t - 0.1 - li * 0.1) / 0.55)
             if pop <= 0.001:
                 continue
             x = int(-70 - cam * 55 * depth + (math.sin(t * 0.8) * wv if wv else 0))
-            y = int(yo + (1 - pop) * CH * 0.45)
-            if (1 - pop) > 0.02 and pop < 1:
-                tmp = spr
-            else:
-                tmp = spr
-            im.paste(tmp, (x, y), tmp)
-            if spr is self.layers[2][0] and self.ships:
+            y = int(OFF + (1 - pop) * CH * 0.45)
+            im.paste(spr, (x, y), spr)
+            if self.ships and li == 2:
                 for (ss, sx2, sy2, dd) in self.ships:
                     bob = 4 * math.sin(t * 1.6 + sx2)
-                    im.paste(ss, (int(sx2 - 70 - cam * 55 * dd + (1 - pop) * 0), int(sy2 + bob + (1 - pop) * CH * 0.4)), ss)
-            if self.flag and abs(depth - self.flag[2]) < 1e-6 and spr is self.layers[2][0] if self.kind != "sea" else (self.flag and spr is self.layers[2][0]):
-                fx, fy = self.flag[0], self.flag[1]
-                self._flag(d, x + fx, y + fy, t)
-        for (fx, fy) in self.flame:
-            fl = 4 + 2 * math.sin(t * 9 + fx)
-            ox = -70 - cam * 55 * 0.5
-            d.polygon([(ox + fx, fy - 12 - fl), (ox + fx + 4, fy - 4), (ox + fx - 4, fy - 4)], fill=(255, 168, 56))
+                    im.paste(ss, (int(sx2 - 70 - cam * 55 * dd), int(OFF + sy2 + bob + (1 - pop) * CH * 0.4)), ss)
+            if self.flag and li == self.flag[2]:
+                self._flag(d, x + self.flag[0], y + self.flag[1], t)
+            if tag == "poles":
+                for (px, py) in self.poles:
+                    self._flag(d, x + px, y + py + 44, t)
+        ox = -70 - cam * 55 * 0.5
+        for (fx, fy) in self.flames:
+            fl = 5 + 2.5 * math.sin(t * 9 + fx)
+            d.polygon([(ox + fx, OFF + fy - 14 - fl), (ox + fx + 5, OFF + fy - 4), (ox + fx - 5, OFF + fy - 4)], fill=(255, 168, 56))
+        for (lx, ly) in self.lamps:
+            sw = 5 * math.sin(t * 1.3 + lx)
+            fl = 3 * math.sin(t * 8 + lx)
+            d.line([(lx - 70 - cam * 55 + sw, OFF), (lx - 70 - cam * 55 + sw, OFF + ly)], fill=(90, 60, 30), width=3)
+            cxl, cyl = lx - 70 - cam * 55 + sw, OFF + ly
+            d.ellipse((cxl - 16, cyl - 4, cxl + 16, cyl + 22), fill=(226, 172, 62))
+            d.polygon([(cxl, cyl - 6 - fl), (cxl + 6, cyl + 10), (cxl - 6, cyl + 10)], fill=(255, 214, 110))
+        for (sx2, sy2, dd) in self.smoke:
+            for k2 in range(4):
+                f = ((t * 0.35 + k2 * 0.25) % 1.0)
+                px = sx2 - 70 - cam * 55 * dd + math.sin(f * 6 + k2) * 8 + f * 18
+                py = OFF + sy2 - f * 90
+                r = 5 + f * 13
+                a = int(150 * (1 - f))
+                d.ellipse((px - r, py - r, px + r, py + r), fill=(max(0, 236 - (150 - a) // 3),) * 3)
         return im
 
     @staticmethod
@@ -475,6 +721,14 @@ class Art:
             pts.append((x + i * 6, y - 44 + 1.8 * math.sin(t * 6 - i * 0.8) * (i / 5)))
         pts2 = [(p[0], p[1] + 20) for p in reversed(pts)]
         d.polygon(pts + [(x + 38, y - 33 + 1.5 * math.sin(t * 6 - 5))] + pts2, fill=SAFF)
+
+
+def darkcloud(rng):
+    c = cloud_sprite(rng, rng.randint(200, 300), 80)
+    r, g, b, a = c.split()
+    rgb = Image.merge("RGB", (r, g, b)).point(lambda v: int(v * 0.34 + 30))
+    out = Image.merge("RGBA", (*rgb.split(), a))
+    return out
 
 
 _ART = {}
@@ -552,17 +806,17 @@ def chip_sprite(word, size=44, rot=0.0, variant=0):
 
 
 def blurred_bg(art):
-    im = art.render(1.5, True).resize((int(CW * H / CH * 0.62), int(H * 0.62)), Image.BILINEAR)
-    s = max(W / im.width, H / im.height)
-    im = im.resize((int(im.width * s) + 2, int(im.height * s) + 2), Image.BILINEAR)
-    x0, y0 = (im.width - W) // 2, (im.height - H) // 2
-    im = im.crop((x0, y0, x0 + W, y0 + H)).filter(ImageFilter.GaussianBlur(26))
+    im = art.render(1.5, True)
+    sc = H / im.height
+    im = im.resize((int(im.width * sc) + 2, H), Image.BILINEAR)
+    x0 = (im.width - W) // 2
+    im = im.crop((x0, 0, x0 + W, H)).filter(ImageFilter.GaussianBlur(30))
     dark = Image.new("RGB", (W, H), (30, 18, 12))
-    return Image.blend(im, dark, 0.42)
+    return Image.blend(im, dark, 0.55)
 
 
-# ------------------------------------------------------------------ info visuals (y 700 .. 940)
-IY0, IY1 = 700, 945
+# ------------------------------------------------------------------ info visuals (lower 30 % of the screen)
+IY0, IY1 = 1010, 1255
 
 
 def i_title(im, v, t, persist, S):
@@ -717,7 +971,7 @@ def i_outro(im, v, t, persist, S):
     text_c(im, CX, IY0 + 92 + off, "जय शिवराय", "serifb", 44, TERRA + (255,), a)
     a2, off2 = reveal(t, 2, persist, 0.3, 0.5, 0.6)
     nxt = str(v.get("next") or "").strip()
-    y2 = IY0 + 200
+    y2 = IY0 + 172
     if nxt:
         f, ls = fit_lines("अगला: " + nxt, "sansb", 28, 560, 1, 20)
         put(im, chip_sprite(ls[0], 30, 0.0, 2), CX, y2, a2, off2)
@@ -730,18 +984,54 @@ def i_outro(im, v, t, persist, S):
 INFO = {"title": i_title, "fort": i_fort, "map": i_map, "timeline": i_timeline, "stat": i_stat,
         "points": i_points, "people": i_people, "scroll": i_scroll, "outro": i_outro}
 
-DEFAULT_KIND = {"title": "fort", "fort": "fort", "map": "ridge", "timeline": "dawn", "stat": "dawn", "points": "fort",
-                "people": "dawn", "scroll": "sea", "outro": "fort"}
-SFX_KIND = {"sword": "ridge", "whisper": "night", "landslide": "forest", "birds": "dawn", "horse": "ridge"}
+DEFAULT_KIND = {"title": "fort", "fort": "fort", "map": "ridge", "timeline": "dawn", "stat": "dawn", "points": "village",
+                "people": "dawn", "scroll": "temple", "outro": "fort"}
+SFX_KIND = {"sword": "battle", "whisper": "night", "landslide": "forest", "birds": "dawn", "horse": "ridge", "march": "ridge"}
+KEYWORDS = [("sea", r"समुद्र|जहाज|नौसेना|आरमार|सागर|तट|सिंधुदुर्ग"), ("temple", r"मंदिर|भवानी|पूजा|देवी|आरती|मंत्र"),
+            ("court", r"दरबार|राज्याभिषेक|सिंहासन|मंत्री|अष्टप्रधान|सभा|न्याय|छत्रपति की उपाधि|शासन"),
+            ("battle", r"युद्ध|लड़ाई|हमला|तलवार|घमासान|मोर्चा|वार |शौर्य|रणनीति"), ("night", r"रात|गुप्त|चुपके|अँधेरे|अंधेरे|खामोश"),
+            ("village", r"गाँव|गांव|किसान|खेत|प्रजा|रैयत|बाज़ार|जनता"), ("forest", r"जंगल|वन |घने|घाटी|खिंड|गुरिल्ला|गनिमी"),
+            ("ridge", r"पहाड़|सह्याद्रि|दर्रा|कूच|चढ़ाई|रास्ता|सफ़र|सफर|यात्रा"), ("fort", r"किला|किले|गढ़|दुर्ग|रायगड|राजगड|प्रतापगड|सिंहगड|तोरणा"),
+            ("dawn", r"सुबह|जन्म|माता|बचपन|सीख|सपना|जिजाऊ")]
+AFFINITY = {"fort": ["ridge", "dawn", "temple", "village", "court", "night"], "ridge": ["fort", "forest", "dawn", "battle", "village"],
+            "sea": ["dawn", "fort", "ridge", "temple"], "forest": ["ridge", "night", "village", "dawn"], "night": ["forest", "fort", "battle", "temple"],
+            "dawn": ["village", "temple", "fort", "ridge", "sea"], "court": ["temple", "fort", "village", "dawn"],
+            "village": ["dawn", "temple", "forest", "fort"], "battle": ["ridge", "night", "fort", "forest"], "temple": ["dawn", "court", "village", "fort"]}
 
 
-def scene_kind(sc):
+def _wanted_kind(sc):
     k = str(sc.get("scene") or "").lower()
     if k in KINDS:
         return k
+    text = " ".join(str(sc.get(x) or "") for x in ("say", "head")) + " " + json.dumps(sc.get("visual") or {}, ensure_ascii=False)
+    for kind, rx in KEYWORDS:
+        if re.search(rx, text):
+            return kind
     if sc.get("sfx") in SFX_KIND:
         return SFX_KIND[sc["sfx"]]
     return DEFAULT_KIND.get((sc.get("visual") or {}).get("type"), "fort")
+
+
+def plan_scenes(spec):
+    """pick a backdrop for every scene from its content, and never repeat: no two neighbours alike, no backdrop more than twice"""
+    if spec.get("_planned"):
+        return
+    used = {}
+    prev = None
+    for sc in spec["scenes"]:
+        want = _wanted_kind(sc)
+        order = [want] + AFFINITY.get(want, []) + [k for k in KINDS if k not in AFFINITY.get(want, []) and k != want]
+        cap = 1 if len(used) < len(KINDS) and sum(used.values()) < len(KINDS) else 2     # use every backdrop once before any repeats
+        pick = (next((k for k in order if k != prev and used.get(k, 0) < cap), None)
+                or next((k for k in order if k != prev and used.get(k, 0) < 2), None) or next(k for k in order if k != prev))
+        sc["_kind"] = pick
+        used[pick] = used.get(pick, 0) + 1
+        prev = pick
+    spec["_planned"] = True
+
+
+def scene_kind(sc):
+    return sc.get("_kind") or _wanted_kind(sc)
 
 
 # ------------------------------------------------------------------ word chips (appear phrase by phrase while the narrator speaks)
@@ -757,7 +1047,7 @@ def chunk_words(text, per=3, max_chars=22):
     return out
 
 
-def draw_chips(im, sub, t, dur, a_in=1.0):
+def draw_chips(im, sub, t, dur, y0=1010):
     ch = chunk_words(sub)
     if not ch:
         return
@@ -784,7 +1074,7 @@ def draw_chips(im, sub, t, dur, a_in=1.0):
         row.append((w, wd))
         rw += wd + 10
     rows.append(row)
-    y = 1010 - (len(rows) - 1) * 40
+    y = y0 - (len(rows) - 1) * 40
     k = 0
     for r in rows:
         total = sum(wd for _, wd in r) + 10 * (len(r) - 1)
@@ -801,21 +1091,6 @@ def draw_chips(im, sub, t, dur, a_in=1.0):
 
 # ------------------------------------------------------------------ the frame
 _BG = {}
-_SHADOW = {}
-
-
-def _card_shadow():
-    if "s" not in _SHADOW:
-        m = Image.new("L", (CW + 80, CH + 80), 0)
-        ImageDraw.Draw(m).rounded_rectangle((40, 50, 40 + CW, 50 + CH), 26, fill=150)
-        m = m.filter(ImageFilter.GaussianBlur(14))
-        spr = Image.new("RGBA", m.size, SHADOW + (0,))
-        spr.putalpha(m)
-        _SHADOW["s"] = spr
-        rm = Image.new("L", (CW, CH), 0)
-        ImageDraw.Draw(rm).rounded_rectangle((0, 0, CW - 1, CH - 1), 24, fill=255)
-        _SHADOW["mask"] = rm
-    return _SHADOW["s"], _SHADOW["mask"]
 
 
 def _draw_pins(card, v, t, persist):
@@ -827,7 +1102,7 @@ def _draw_pins(card, v, t, persist):
     pts = []
     for i in range(n):
         f = i / max(1, n - 1)
-        pts.append((70 + f * 500, 330 - f * 150 + math.sin(i * 2.0) * 36))
+        pts.append((90 + f * 540, 700 - f * 190 + math.sin(i * 2.0) * 40))
     prog = 1.0 if persist else ease((t - 0.5) / (0.6 * n))
     total = max(1, n - 1) * prog
     for i in range(n - 1):
@@ -837,62 +1112,60 @@ def _draw_pins(card, v, t, persist):
         k = 0
         while k * 14 < L * seg:
             px, py = x0 + (x1 - x0) * k * 14 / L, y0 + (y1 - y0) * k * 14 / L
-            d.ellipse((px - 3, py - 3, px + 3, py + 3), fill=(255, 244, 222))
+            d.ellipse((px - 4, py - 4, px + 4, py + 4), fill=(255, 244, 222))
             k += 1
     for i, (x, y) in enumerate(pts):
         a = 1.0 if persist else ease((total - (i - 0.3)) / 0.4)
         if a <= 0.05:
             continue
-        r = 13
-        yy = y - 12 * (1 - a) - 0
-        d.line((x, yy, x, yy + 22), fill=(80, 54, 36), width=3)
+        r = 15
+        yy = y - 12 * (1 - a)
+        d.line((x, yy, x, yy + 24), fill=(80, 54, 36), width=3)
         d.ellipse((x - r, yy - r - 10, x + r, yy + r - 10), fill=(214, 60, 48), outline=(120, 30, 24), width=2)
         tx = str(i + 1)
-        d.text((x - tw(tx, font("sansb", 18)) / 2, yy - r - 10 + 1), tx, font=font("sansb", 18), fill=CREAM)
+        d.text((x - tw(tx, font("sansb", 20)) / 2, yy - r - 10 + 1), tx, font=font("sansb", 20), fill=CREAM)
 
 
 def draw_frame(spec, idx, t, gt, total, persist):
+    plan_scenes(spec)
     sc = spec["scenes"][idx]
     n = len(spec["scenes"])
     dur = (spec.get("_durs") or [8.0] * n)[idx]
     kind = scene_kind(sc)
-    seed = (zlib.crc32(str(spec.get("title", "")).encode()) % 997) * 31 + idx * 7
-    art = get_art(kind, seed % 100000)
+    seed = (zlib.crc32(str(spec.get("title", "")).encode()) % 9973) * 31 + idx * 7919 + KINDS.index(kind) * 101
+    art = get_art(kind, seed)
     art.cast = cast_kind(sc)
-    bkey = (kind, seed % 100000)
+    bkey = (kind, seed)
     if bkey not in _BG:
         if len(_BG) > 24:
             _BG.clear()
         _BG[bkey] = blurred_bg(art)
     im = _BG[bkey].copy()
-    # header
+    # animation: top 70 % of the screen, full bleed
+    frame = art.render(t, persist)
+    v = sc.get("visual") or {}
+    if v.get("type") == "map":
+        _draw_pins(frame, v, t, persist)
+    im.paste(frame, (0, 0))
     d = ImageDraw.Draw(im)
-    d.text((40, 36), CFG["brand"], font=font("serifb", 30), fill=CREAM)
+    # torn paper edge under the animation
+    put(im, card_sprite(756, 30, CREAM, 0.0, 5, 120), CX, AH + 2)
+    # header over the animation
+    d.text((42, 40), CFG["brand"], font=font("serifb", 32), fill=SHADOW)
+    d.text((40, 38), CFG["brand"], font=font("serifb", 32), fill=CREAM)
     tag = str(spec.get("tag", "")).strip()[:16]
     if spec.get("part"):
         tag = f"भाग {spec['part'][0]}/{spec['part'][1]}"
-    f = font("sansb", 24)
     if tag:
-        wd = tw(tag, f) + 34
-        put(im, chip_sprite(tag, 24, 0.0, 6), W - 40 - wd / 2 + 8, 52)
-    d.line((40, 100, W - 40, 100), fill=(255, 244, 222, 60), width=2)
-    d.line((40, 100, 40 + (W - 80) * min(1.0, gt / max(total, 0.1)), 100), fill=GOLDY, width=4)
-    # diorama card
-    sh, mask = _card_shadow()
-    cx0, cy0 = (W - CW) // 2, 126
-    slide = ease(t / 0.5) if not persist else 1.0
-    im.paste(sh, (cx0 - 40, cy0 - 40 + int((1 - slide) * 30)), sh)
-    card = art.render(t, persist).convert("RGBA")
-    v = sc.get("visual") or {}
-    if v.get("type") == "map":
-        _draw_pins(card, v, t, persist)
-    border = ImageDraw.Draw(card)
-    rounded = Image.new("RGB", (CW, CH))
-    rounded.paste(card.convert("RGB"))
-    im.paste(rounded, (cx0, cy0 + int((1 - slide) * 30)), mask)
-    d = ImageDraw.Draw(im)
-    d.rounded_rectangle((cx0, cy0 + int((1 - slide) * 30), cx0 + CW - 1, cy0 + CH - 1 + int((1 - slide) * 30)), 24, outline=CREAM, width=5)
-    # headline
+        wd = tw(tag, font("sansb", 24)) + 34
+        put(im, chip_sprite(tag, 24, 0.0, 6), W - 40 - wd / 2 + 8, 56)
+    d.line((40, 100, W - 40, 100), fill=(255, 244, 222), width=2)
+    d.line((40, 100, 40 + (W - 80) * min(1.0, gt / max(total, 0.1)), 100), fill=GOLDY, width=5)
+    # subtitle chips sit on the lower edge of the animation
+    sub = str(sc.get("sub", "")).strip()
+    if sub and v.get("type") != "outro":
+        draw_chips(im, sub, t, dur, y0=818)
+    # headline (lower area)
     a = ease(t / 0.35)
     head = str(sc.get("head", ""))
     words = []
@@ -902,34 +1175,24 @@ def draw_frame(spec, idx, t, gt, total, persist):
         hl = p.startswith("**") and p.endswith("**") and len(p) > 4
         for w in (p[2:-2] if hl else p).split():
             words.append((w, hl))
-    fh = font("serifb", 52)
-    lines, cur, cw_ = [], [], 0
-    sp = tw(" ", fh)
+    size = 54
+    while True:
+        fh = font("serifb", size)
+        sp = tw(" ", fh)
+        wid = sum(tw(w, fh) for w, _ in words) + sp * max(0, len(words) - 1)
+        if wid <= 640 or size <= 34:
+            break
+        size -= 2
+    cx = CX - wid / 2
+    y = 918
     for w, hl in words:
         wl = tw(w, fh)
-        if cur and cw_ + sp + wl > 620:
-            lines.append(cur)
-            cur, cw_ = [], 0
-        cw_ += (sp if cur else 0) + wl
-        cur.append((w, hl, wl))
-    if cur:
-        lines.append(cur)
-    y = 545 + (0 if len(lines) > 1 else 22)
-    for ln in lines[:2]:
-        wid = sum(x[2] for x in ln) + sp * (len(ln) - 1)
-        x = CX - wid / 2
-        for w, hl, wl in ln:
-            spr = text_sprite(w, "serifb", 52, (GOLDY if hl else CREAM) + (255,), True)
-            put(im, spr, x + wl / 2, y + spr.height / 2 - 2, a, (1 - a) * 18)
-            x += wl + sp
-        y += 80
-    # info + chips
+        spr = text_sprite(w, "serifb", size, (GOLDY if hl else CREAM) + (255,), True)
+        put(im, spr, cx + wl / 2, y + spr.height / 2 - 2, a, (1 - a) * 18)
+        cx += wl + sp
     fn = INFO.get(v.get("type"))
     if fn:
         fn(im, v, t, persist, sc)
-    sub = str(sc.get("sub", "")).strip()
-    if sub and v.get("type") != "outro":
-        draw_chips(im, sub, t, dur)
     return im
 
 
@@ -1054,26 +1317,41 @@ def cast_kind(sc):
         return c
     if sc.get("sfx") == "horse":
         return "rider"
-    if sc.get("sfx") in ("sword", "march"):
+    if sc.get("sfx") in ("sword", "march") or sc.get("_kind") == "battle":
         return "mavle"
     return "none"
 
 
 RIDER_T, MARCH_T = 1.55, 0.9
+CAST_SCALE = 1.35
+
+
+def _cscale(spr):
+    return spr.resize((int(spr.width * CAST_SCALE), int(spr.height * CAST_SCALE)), Image.BICUBIC)
+
+
+@lru_cache(maxsize=128)
+def _rider_big(b):
+    return _cscale(rider_sprite(b))
+
+
+@lru_cache(maxsize=512)
+def _mavla_big(b, flagged, k):
+    return _cscale(mavla_sprite(b, 16, flagged, k))
 
 
 def draw_cast(im, cast, t, persist):
-    gy = int(CH * 0.90)
+    gy = OFF + int(CH * 0.93)
     if cast == "rider":
         b = int((t % RIDER_T) / RIDER_T * 16) % 16
-        spr = rider_sprite(b)
+        spr = _rider_big(b)
         prog = (0.18 + t * 0.14) % 1.0
         x = int(-spr.width + prog * (CW + spr.width + 40))
-        im.paste(spr, (x, gy - spr.height + 14 + int(2 * math.sin(t * 4.05 * 2))), spr)
+        im.paste(spr, (x, gy - spr.height + 18 + int(3 * math.sin(t * 4.05 * 2))), spr)
     elif cast == "mavle":
         b = int((t % MARCH_T) / MARCH_T * 16) % 16
         prog = (0.2 + t * 0.1) % 1.0
-        base = -300 + prog * (CW + 360)
+        base = -420 + prog * (CW + 480)
         for k in range(5):
-            spr = mavla_sprite(b, 16, k % 2 == 0, k)
-            im.paste(spr, (int(base + k * 62 + (k % 2) * 9), gy - spr.height + 12 + (k % 2) * 6), spr)
+            spr = _mavla_big(b, k % 2 == 0, k)
+            im.paste(spr, (int(base + k * 84 + (k % 2) * 12), gy - spr.height + 14 + (k % 2) * 8), spr)
