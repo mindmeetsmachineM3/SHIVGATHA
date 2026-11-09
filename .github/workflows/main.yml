@@ -45,6 +45,7 @@ jobs:
       BRAND_NAME: ${{ vars.BRAND_NAME }}
       EXPLAIN_VOICE: ${{ vars.EXPLAIN_VOICE }}
       EXPLAIN_RATE: ${{ vars.EXPLAIN_RATE }}
+      THEME: paper
       EXPLAIN_PITCH: ${{ vars.EXPLAIN_PITCH }}
       EXPLAIN_DEEP: ${{ vars.EXPLAIN_DEEP }}
       EXPLAIN_SFX: ${{ vars.EXPLAIN_SFX }}
