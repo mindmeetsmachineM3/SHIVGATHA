@@ -78,17 +78,9 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq ffmpeg fonts-noto-core fonts-dejavu-core libfribidi0 libharfbuzz0b
 
-      - name: Where is paper.py?
-        run: |
-          pwd
-          ls -la
-          git log -1 --oneline
-          env | grep -i python || true
-
       - name: Make and post the Reel
         if: ${{ !inputs.diagnose }}
         env:
-          PYTHONPATH: ${{ github.workspace }}
           INPUT_TOPIC: ${{ inputs.topic }}
           INPUT_DRY: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
         run: |
