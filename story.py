@@ -90,7 +90,8 @@ CATEGORIES = ["शिवाजी महाराज का बचपन और 
               "महाराज के जीवन से सीख"]
 
 SAFETY_RULES = """SAFETY RULES (very important, the page must never create controversy):
- - If a date or detail is disputed or only folklore, either skip it or say "इतिहासकारों के अनुसार" / "कहा जाता है" / "लगभग".
+ - Use ONLY well-documented, widely accepted history (mainstream Indian historians, Shiv Charitra, Sabhasad Bakhar, contemporary records).
+   If a date or detail is disputed or only folklore, either skip it or say "इतिहासकारों के अनुसार" / "कहा जाता है" / "लगभग".
    NEVER invent dialogue, numbers, dates, names or quotes. When unsure, leave the detail out.
  - Talk about conflicts only as political and military events between states (स्वराज्य, आदिलशाही, मुगल सल्तनत, पुर्तगाली, सिद्दी, अंग्रेज़).
    NEVER frame anything as a religion against religion, caste against caste, or community against community.
@@ -99,7 +100,7 @@ SAFETY_RULES = """SAFETY RULES (very important, the page must never create contr
  - Be respectful: always "छत्रपति शिवाजी महाराज" / "संभाजी महाराज" / "महाराज". Praise through facts (planning, courage, justice, care for people), not through attacking others.
  - Avoid contested topics: caste status debates, guru/teacher disputes, tomb or temple disputes, the exact cause of Shivaji Maharaj's death,
    and graphic violence. Where history is painful (for example the last days of Sambhaji Maharaj) tell it with dignity: courage and sacrifice, no graphic detail, no blame on any community.
- - maintion the source of the content (e.g. if content from book,website,article) 
+ - Do not show or describe any painting or face of the Maharajas. Visuals are only maps, forts, flags, timelines, scrolls and names.
 """
 
 PROMPT = """You write the script of a 45-75 second Instagram Reel in HINDI (Devanagari) about Chhatrapati Shivaji Maharaj / Chhatrapati Sambhaji Maharaj
@@ -135,7 +136,7 @@ Return ONLY JSON:
  "comment_q":"<one respectful Hindi question for the audience>","hashtags":["#<specific tag>", "..."],
  "scenes":[{{"say":"...","sub":"...","head":"...","sfx":"none","scene":"fort","cast":"none","visual":{{...}}}}]}}
 
-"scene" = the paper-diorama backdrop, one of: "fort" (forts, rule, court), "ridge" (mountains, marches, battles), "sea" (navy, coast, ships), "forest" (guerrilla, hills, escape), "night" (secret plans, danger), "dawn" (birth, peace, people, lessons).
+"scene" = the paper-diorama backdrop that MATCHES what the narration of that scene says, one of: "fort" (a fort, its walls), "ridge" (mountain marches, passes, journeys), "sea" (navy, coast, ships), "forest" (guerrilla war, hidden valleys, escape), "night" (secret plans, danger), "dawn" (birth, childhood, mother, peace, lessons), "court" (darbar, coronation, ministers, justice, throne), "village" (farmers, people, markets, welfare), "battle" (fighting, swords, strategy at war), "temple" (worship, Bhavani, faith). NEVER use the same "scene" in two neighbouring scenes and use each value at most twice in a video.
 "cast" = a paper character walking across the diorama: "rider" (Chhatrapati riding a horse with a bhagwa flag: journeys, escapes, marches, a ride to a fort), "mavle" (a column of Mavle soldiers marching with bhagwa flags and spears: battles, fort defence, gathering of the army, swearing the oath), "none" (calm, people, lessons, outro). Use "rider" in 2-3 scenes and "mavle" in 2-3 scenes, matching what the narration says. Characters are only silhouettes, never name them in "cast".
 Also add "march" to the sfx list: footsteps of marching soldiers (use with cast "mavle").
 
@@ -820,7 +821,7 @@ def validate(spec, max_words=190, strict=True):
         if sc["sfx"] == "none":                            # characters bring their own sound
             sc["sfx"] = {"rider": "horse", "mavle": "march"}.get(sc["cast"], "none")
         sc["scene"] = str(sc.get("scene") or "").lower().strip()
-        if sc["scene"] not in ("fort", "ridge", "sea", "forest", "night", "dawn"):
+        if sc["scene"] not in ("fort", "ridge", "sea", "forest", "night", "dawn", "court", "village", "battle", "temple"):
             sc["scene"] = ""
         out.append(sc)
     if len(out) < (10 if strict else 8):
