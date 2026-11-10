@@ -1259,6 +1259,7 @@ def main():
                   "and IG_USER_ID (digits only). Generate a new token in the Meta dashboard and paste it again.", file=sys.stderr)
         sys.exit(3)                       # 3 = do not retry (the video itself is fine)
     print(f"POSTED Reel: {mid}", file=sys.stderr)
+    M.first_comment(mid, str(spec.get("comment_q") or ""))     # question under our own post (never fails the run)
     if not args.topic:
         record_posted(state, topic, part, cat)
         save_state(state)
