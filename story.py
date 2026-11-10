@@ -42,7 +42,7 @@ HANDLE = (os.getenv("IG_HANDLE") or "shivgatha").lstrip("@")
 BRAND = os.getenv("BRAND_NAME") or "शिवगाथा"
 VOICE = os.getenv("EXPLAIN_VOICE") or "hi-IN-MadhurNeural"       # edge-tts fallback (male Hindi)
 VOICE_BACKUP = ["hi-IN-SwaraNeural"]
-VOICE_RATE = os.getenv("EXPLAIN_RATE") or "-10%"
+VOICE_RATE = os.getenv("EXPLAIN_RATE") or "+5%"
 VOICE_PITCH = os.getenv("EXPLAIN_PITCH") or "-18Hz"              # deeper for the edge-tts fallback
 VOICE_TEXT = "devanagari"
 W, H, FPS = 720, 1280, 30
@@ -909,7 +909,7 @@ TTS = (os.getenv("EXPLAIN_TTS") or "gemini").lower()                 # gemini | 
 GTTS_VOICE = os.getenv("GEMINI_TTS_VOICE") or "Algenib"               # Charon, Kore, Orus, Puck, Fenrir, Aoede, Leda, Zephyr ...
 GTTS_MODELS = [m for m in dict.fromkeys([os.getenv("GEMINI_TTS_MODEL") or "", "gemini-3.8-flash-tts", "gemini-3.8-flash-lite-tts"]) if m]
 GTTS_LEGACY = ["gemini-2.5-flash-preview-tts"]
-GTTS_STYLE = os.getenv("GEMINI_TTS_STYLE") or "a deep, heavy, resonant Indian male narrator speaking Hindi, slow, calm and powerful with great gravitas, like a documentary on Maratha history"
+GTTS_STYLE = os.getenv("GEMINI_TTS_STYLE") or "a deep, heavy, resonant Indian male narrator speaking Hindi, calm and powerful with great gravitas but at a steady, confident, slightly brisk pace (not slow, no long pauses), like a documentary on Maratha history"
 API = "https://generativelanguage.googleapis.com/v1beta"
 
 
@@ -1018,7 +1018,7 @@ def _silences(path, noise, dur):
 def _find_cuts(path, spec, total):
     """Times (seconds) where one scene ends and the next begins in the one-piece narration."""
     n = len(spec["scenes"])
-    w = [len(sc["say"].split()) + 3: for sc in spec["scenes"]]
+    w = [len(sc["say"].split()) + 3 for sc in spec["scenes"]]
     cum, acc = [], 0
     for x in w[:-1]:
         acc += x
@@ -1110,13 +1110,13 @@ def build_audio(spec, tmp, fake=False):
                 print(f"voice provider {provider} failed: {ex}", file=sys.stderr)
         if not paths:
             raise RuntimeError("no voice could be generated: " + " || ".join(errs))
-    speed = float(os.getenv("EXPLAIN_SPEED") or 1.0)
+    speed = float(os.getenv("EXPLAIN_SPEED") or 1.12)
     durs, wavs = [], []
     for i, p in enumerate(paths):
         t1, wav = tmp / f"t{i:02d}.wav", tmp / f"s{i:02d}.wav"
         flt = _TRIM + DEEP_FILTER + (f",atempo={speed}" if abs(speed - 1.0) > 0.01 else "")
         _run(["ffmpeg", "-v", "error", "-y", "-i", str(p), "-af", flt, "-ar", "44100", "-ac", "1", str(t1)])
-        dur = max(2.6, audio_len(t1) + 0.2 + 0.55)
+        dur = max(2.6, audio_len(t1) + 0.2 + 0.35)
         _run(["ffmpeg", "-v", "error", "-y", "-i", str(t1), "-af", "adelay=150|150,apad", "-t", f"{dur:.3f}", "-ar", "44100", "-ac", "1", str(wav)])
         durs.append(dur)
         wavs.append(wav)
