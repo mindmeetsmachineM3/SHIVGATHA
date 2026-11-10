@@ -194,6 +194,117 @@ def refresh_token():
     print("Token refreshed, valid for days:", j.get("expires_in", 0) // 86400)
 
 
+# ---------------------------------------------------------------- auto comments (only on OUR OWN posts)
+# 1) first_comment(): a question under every new post.  2) reply_comments(): short replies to new comments (python core.py --reply-comments).
+# Needs the token permission 'instagram_business_manage_comments' (the post itself still works without it).
+REPLIED_FILE = Path(os.getenv("REPLIED_FILE") or "replied.json")
+FIRST_COMMENTS = ["{q}\n\nकमेंट में बताइए 👇 हर कमेंट का जवाब मिलेगा! 🚩", "{q} 👇 अपना जवाब कमेंट में लिखिए, हम सबको जवाब देंगे। जय शिवराय 🚩"]
+SPAM_RX = re.compile(r"https?://|www\.|\.com\b|\bdm\s*me\b|follow\s*back|f4f|l4l|promo|collab|giveaway|whatsapp|telegram|crypto|\binvest|\bloan\b|sub4sub|check\s*my|my\s*page", re.I)
+BLOCK_RX = re.compile(r"जाति|ब्राह्मण|दलित|मुस्लिम|मुसलमान|हिंदू-मुस्लिम|धर्म|औरंगज़ेब|औरंगजेब|मुगल|गद्दार|कटुआ|चमचा|भड़वा|हरामी|चूतिया|मादर|बहन\s*की|(?<!\S)साला(?!\S)|politic|cast(e)?\b|muslim|brahmin", re.I)
+EMOJI_REPLIES = ["🚩🙏", "जय शिवराय 🚩", "धन्यवाद! 🚩"]
+PAGE_PERSONA = os.getenv("PAGE_PERSONA") or "You run the Instagram page 'Shivgatha' (Hindi stories about Chhatrapati Shivaji Maharaj and Chhatrapati Sambhaji Maharaj). Write a short, respectful reply to this comment on our post. Never use disrespectful words for the Maharajs; greet with 'जय शिवराय 🚩' only sometimes."
+
+
+def ig_comment(media_id, text):
+    r = requests.post(f"{GRAPH}/{media_id}/comments", data={"message": text, "access_token": get_token()}, timeout=40)
+    if not r.ok:
+        raise RuntimeError(r.text[:300])
+    return r.json().get("id")
+
+
+def first_comment(media_id, question=""):
+    """Question under our own new post. Never fails the run."""
+    if (os.getenv("FIRST_COMMENT") or "on").lower() != "on":
+        return
+    import random
+    q = (question or "").strip() or "आपको यह कहानी कैसी लगी?"
+    try:
+        time.sleep(8)
+        cid = ig_comment(media_id, random.choice(FIRST_COMMENTS).format(q=q)[:900])
+        print(f"first comment posted: {cid}", file=sys.stderr)
+    except Exception as ex:
+        print(f"WARNING: first comment not posted ({str(ex)[:200]}). If it mentions permission/scope, create the token again with "
+              f"the 'instagram_business_manage_comments' permission.", file=sys.stderr)
+
+
+def _reply_prompt(caption, comment):
+    return f"""{PAGE_PERSONA}
+
+Our post caption (context): {caption[:500]}
+Comment: {comment}
+
+Rules:
+- Reply in Hindi (Devanagari), polite, calm and respectful. Max 22 words. At most one emoji. No hashtags, no links, no @mentions.
+- Sound human and specific to what they said; when it fits, end with a tiny follow-up question.
+- Do not promise anything (no giveaways, collabs, DMs, "I will make a video"). Do not argue. Do not add new facts you are not sure about.
+- If the comment is abusive, spam, an ad, a fight about religion, caste, politics or other communities, or asks for personal information: set skip=true.
+Return ONLY JSON: {{"skip": false, "reply": "..."}}"""
+
+
+def _json_reply(prompt):
+    import json
+    raw = call_gemini(prompt)
+    return json.loads(re.sub(r"^```(?:json)?|```$", "", raw.strip(), flags=re.M).strip())
+
+
+def reply_comments():
+    import json
+    import random
+    limit = int(os.getenv("REPLY_MAX") or 8)
+    token, ig = get_token(), os.environ["IG_USER_ID"]
+    me = requests.get(f"{GRAPH}/{ig}", params={"fields": "username", "access_token": token}, timeout=30).json().get("username", "")
+    media = requests.get(f"{GRAPH}/{ig}/media", params={"fields": "id,caption,timestamp", "limit": 8, "access_token": token}, timeout=30)
+    if not media.ok:
+        raise RuntimeError(f"cannot read media: {media.text[:300]}")
+    try:
+        done = json.loads(REPLIED_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        done = {"ids": []}
+    seen, sent = set(done.get("ids", [])), 0
+    for m in media.json().get("data", []):
+        r = requests.get(f"{GRAPH}/{m['id']}/comments", params={"fields": "id,text,username,replies{id,username}", "limit": 40,
+                         "access_token": token}, timeout=30)
+        if not r.ok:
+            print(f"comments not readable ({r.text[:200]}): the token needs 'instagram_business_manage_comments'", file=sys.stderr)
+            break
+        for c in r.json().get("data", []):
+            if sent >= limit:
+                break
+            text = (c.get("text") or "").strip()
+            if c["id"] in seen or not text or c.get("username") == me:
+                continue
+            if any(x.get("username") == me for x in (c.get("replies") or {}).get("data", [])):
+                seen.add(c["id"])
+                continue
+            if SPAM_RX.search(text) or BLOCK_RX.search(text):
+                seen.add(c["id"])
+                continue
+            if not re.search(r"[A-Za-zऀ-ॿ0-9]", text):                 # emoji-only comment
+                reply = random.choice(EMOJI_REPLIES)
+            else:
+                try:
+                    d = _json_reply(_reply_prompt(m.get("caption") or "", text))
+                except Exception as ex:
+                    print(f"reply writer failed ({str(ex)[:100]})", file=sys.stderr)
+                    continue
+                reply = re.sub(r"https?://\S+|#\w+|@\w+", "", str(d.get("reply", ""))).strip()[:220]
+                if d.get("skip") or not reply or BLOCK_RX.search(reply):
+                    seen.add(c["id"])
+                    continue
+            rr = requests.post(f"{GRAPH}/{c['id']}/replies", data={"message": reply, "access_token": token}, timeout=40)
+            if not rr.ok:
+                print(f"reply failed: {rr.text[:200]}", file=sys.stderr)
+                if "permission" in rr.text.lower() or "(#10)" in rr.text or "scope" in rr.text.lower():
+                    break
+                continue
+            print(f"replied to @{c.get('username')}: {reply}")
+            seen.add(c["id"])
+            sent += 1
+            time.sleep(random.uniform(25, 60))
+    REPLIED_FILE.write_text(json.dumps({"ids": list(seen)[-1500:]}), encoding="utf-8")
+    print(f"replies sent: {sent}")
+
+
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--diagnose", action="store_true")
@@ -203,5 +314,7 @@ if __name__ == "__main__":
         diagnose()
     elif a.refresh_token:
         refresh_token()
+    elif a.reply_comments:
+        reply_comments()
     else:
         ap.print_help()
