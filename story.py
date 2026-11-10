@@ -1018,7 +1018,7 @@ def _silences(path, noise, dur):
 def _find_cuts(path, spec, total):
     """Times (seconds) where one scene ends and the next begins in the one-piece narration."""
     n = len(spec["scenes"])
-    w = [len(sc["say"].split()) + 2: for sc in spec["scenes"]]
+    w = [len(sc["say"].split()) + 3: for sc in spec["scenes"]]
     cum, acc = [], 0
     for x in w[:-1]:
         acc += x
