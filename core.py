@@ -309,6 +309,7 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--diagnose", action="store_true")
     ap.add_argument("--refresh-token", action="store_true")
+    ap.add_argument("--reply-comments", action="store_true", help="reply to new comments on our last posts")
     a = ap.parse_args()
     if a.diagnose:
         diagnose()
