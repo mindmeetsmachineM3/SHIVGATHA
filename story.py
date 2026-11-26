@@ -1149,7 +1149,11 @@ def mix_sound(spec, durs, voice_wav, tmp):
 def render(spec, durs, audio, out_path, preview_dir=None):
     total = sum(durs)
     spec["_durs"] = durs
-    draw = paper.draw_frame if THEME == "paper" else draw_frame
+    if THEME == "map":
+        import mapstory
+        draw = mapstory.draw_frame
+    else:
+        draw = paper.draw_frame if THEME == "paper" else draw_frame
     cmd = ["ffmpeg", "-v", "error", "-y", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{W}x{H}", "-r", str(FPS), "-i", "-",
            "-i", str(audio), "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p", "-profile:v", "high",
            "-c:a", "aac", "-b:a", "160k", "-shortest", "-movflags", "+faststart", str(out_path)]
@@ -1158,6 +1162,7 @@ def render(spec, durs, audio, out_path, preview_dir=None):
     prev_key = None
     nframes = 0
     for i, sc in enumerate(spec["scenes"]):
+        sc.setdefault("visual", {"type": "map"})
         key = vkey(sc["visual"])
         persist = (key == prev_key)
         prev_key = key
@@ -1220,7 +1225,22 @@ def main():
     print(VERSION, file=sys.stderr)
     OUT_DIR.mkdir(exist_ok=True)
     stamp = time.strftime("%Y%m%d_%H%M")
-    if args.sample:
+    if THEME == "map":
+        import mapstory
+        state = load_state()
+        if args.sample:
+            spec = json.loads(json.dumps(mapstory.SAMPLE))
+            for s_ in spec["scenes"]:
+                for k_, v_ in (("route", []), ("callout", ""), ("card", None), ("stat", None), ("sfx", "none"), ("label", ""), ("sublabel", "")):
+                    s_.setdefault(k_, v_)
+            topic, part, cat = "sample", None, "Map"
+        else:
+            import core as M
+            topic, cat = mapstory.plan(state, args.topic)
+            part = None
+            print(f"TOPIC: {topic} | category: {cat}", file=sys.stderr)
+            spec = mapstory.gen_spec(topic, sys.modules[__name__])
+    elif args.sample:
         spec = validate(json.loads(json.dumps(SAMPLE)), strict=False)
     else:
         import core as M
@@ -1241,7 +1261,7 @@ def main():
             prev = OUT_DIR / "previews"
             prev.mkdir(exist_ok=True)
         secs = render(spec, durs, audio, out, prev)
-    cap = build_caption(spec)
+    cap = mapstory.build_caption(spec, HANDLE) if THEME == "map" else build_caption(spec)
     (OUT_DIR / f"{stamp}_story.txt").write_text(cap, encoding="utf-8")
     print(f"video: {out} ({secs:.0f}s, voice {voice})", file=sys.stderr)
     print(cap)
